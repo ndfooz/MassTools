@@ -49,9 +49,11 @@
 #' @examples 
 #' 
 #' calcMF(mz = 200.000659, z = 1, ppm = 5)
+#' calcMF(mz=c(200.000659, 201.008479), z=1, ppm=5, mzabs=0, intensity=c(16328, 159), maxisotopes=2)
 #' 
 #' @export
-calcMF <- function(mz = 200.000659,
+calcMF <- function(mz,
+                   intensity,
                    z = 1,
                    ppm = 5,
                    top = NULL,
@@ -102,7 +104,7 @@ calcMF <- function(mz = 200.000659,
     
   }
   
-  if(length(mz)>1){
+  if(length(mz)>1 & missing(intensity)){
     
     
     rl <- bplapply(mz,calcMF,
@@ -140,13 +142,22 @@ calcMF <- function(mz = 200.000659,
   
    #have to add an electon mass to mz for each charge to get uncharged mass 
   #[needed for correct ppm calculation in decomposeMass; maybe breaks nitrogen rule calculation]
-  mm <- decomposeMass(mz + z*5.48579909070e-4,   z = z, 
+  if(missing(intensity)){
+    mm <- decomposeMass(mz + z*5.48579909070e-4,   z = z, 
                       maxisotopes = 1, 
                       ppm = ppm, 
                       mzabs = 0,
                       elements = elements,
                       minElements = Filters$minElements,
                       maxElements = Filters$maxElements)
+  } else if(!missing(intensity)){
+    mm <- decomposeIsotopes(masses=unlist(mz) + z*5.48579909070e-4, 
+                            intensities=intensity, 
+                            z=z,
+                            ppm=ppm,
+                            mzabs=mzabs,
+                            maxisotopes=maxisotopes)
+  }
   
   if(is.null(mm)){return(failReturn)}
   
@@ -164,7 +175,7 @@ calcMF <- function(mz = 200.000659,
   if(length(f1) == 0){return(failReturn)}
   
   #now reorder by mass difference
-  f2 <- f1[order(abs(mm$exactmass[f1] - z*5.48579909070e-4 - mz))]
+  f2 <- f1[order(abs(mm$exactmass[f1] - z*5.48579909070e-4 - mz[1]))] # first mz, if vector of isotope cluster
   
   
   sfs <- makeMF(mm$formula[f2], forcelist = TRUE)
@@ -190,15 +201,15 @@ calcMF <- function(mz = 200.000659,
                     RdisopScore = mm$score[f2],
                     unsat = mm$DBE[f2],
                     parity = mm$parity[f2],
-                    error = mm$exactmass[f2] - z*5.48579909070e-4 - mz,
+                    error = mm$exactmass[f2] - z*5.48579909070e-4 - mz[1],
                     nrule = mm$valid[f2],
                     stringsAsFactors = FALSE)
   
-  res$ppm <- res$error/mz *1e6
+  res$ppm <- res$error/mz[1] *1e6
   
   #Golden rule #1: Restriction for element numbers
   if(maxCounts){
-    Da <- abs(mz/z)
+    if(z!=0) Da <- abs(mz[1]/z) else Da <- mz[1]
     if(Da < 500){
       maxCountLimit <- consolidateMF(c(C = 29,H = 72, N= 10, O = 18, P= 4, S= 7, F =15, Cl = 8, Br = 5))
     }else if(Da <1000){
@@ -335,8 +346,9 @@ calcMF <- function(mz = 200.000659,
              ||r2["S"] >=3)){return(FALSE)}
       
       switch(paste(names(r2), collapse = ""),
-             NOP = {if(min(r2) > 3 && (r2["N"] >=11 || r2["O"] >=22 || r2["P"] >=7)){return(FALSE)}},
+             NOP = {if(min(r2) > 3 && (r2["N"] >=11 || r2["O"] >=22 || r2["P"] >=6)){return(FALSE)}},
              OPS = {if(min(r2) > 1 && (r2["S"] >=3 || r2["O"] >=14 || r2["P"] >=3)){return(FALSE)}},                                                                            NPS = {if(min(r2) > 1 && (r2["N"] >=4 || r2["S"] >=3 || r2["P"] >=3)){return(F)}},
+             NPS = {if(min(r2) > 1 && (r2["N"] >=4 || r2["S"] >=3 || r2["P"] >=3)){return(FALSE)}},
              NOS = {if(min(r2) > 6 && (r2["S"] >=8 || r2["O"] >=14 || r2["N"] >=19)){return(FALSE)}})
       
       return(TRUE)
